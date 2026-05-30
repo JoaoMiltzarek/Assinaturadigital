@@ -217,4 +217,10 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-
+# Modelos grandes (só sobe via LFS)
+*.pkl
+*.h5
+*.pb
+models/*
+!models/modelo_final.pkl
+!models/.gitkeep
