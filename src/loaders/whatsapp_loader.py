@@ -14,10 +14,19 @@ import pandas as pd
 from src.processing.normalizer import normalize_messages_dataframe
 
 # Padrão Android PT-BR: "31/05/2026 12:00 - Joao: oi kkk"
-_ANDROID_PATTERN = re.compile(r"^(\d{2}/\d{2}/\d{4}\s\d{2}:\d{2})\s-\s(.*?):\s(.*)$")
+_ANDROID_PATTERN = re.compile(
+    r"^(\d{2}/\d{2}/\d{2,4},?\s\d{2}:\d{2})\s-\s(.*?):\s(.*)$"
+)
 
 # Padrão iOS/Colchetes: "[31/05/2026, 12:00:00] Joao: oi kkk"
-_IOS_PATTERN = re.compile(r"^\[(\d{2}/\d{2}/\d{4},\s\d{2}:\d{2}:\d{2})\]\s(.*?):\s(.*)$")
+_IOS_PATTERN = re.compile(
+    r"^\[(\d{2}/\d{2}/\d{2,4},\s\d{2}:\d{2}(?::\d{2})?)\]\s(.*?):\s(.*)$"
+)
+
+_TIMESTAMP_PATTERN = re.compile(
+    r"^(?:\[\d{2}/\d{2}/\d{2,4},\s\d{2}:\d{2}(?::\d{2})?\]"
+    r"|\d{2}/\d{2}/\d{2,4},?\s\d{2}:\d{2}\s-)"
+)
 
 def load_whatsapp_txt_messages(
     text_content: str,
@@ -71,6 +80,9 @@ def load_whatsapp_txt_messages(
             continue
             
         # Se não casou com nenhum, é continuação da mensagem anterior (ou sistema)
+        if _TIMESTAMP_PATTERN.match(line):
+            continue
+
         if current_msg is not None:
             current_msg["text"] += "\n" + line.strip()
             
