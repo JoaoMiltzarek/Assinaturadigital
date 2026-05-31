@@ -25,6 +25,10 @@ def _validate_column(df: pd.DataFrame, column_name: str | None, context: str) ->
             f"Colunas disponíveis: {list(df.columns)}"
         )
 
+def _parse_datetime_series_safely(series: pd.Series) -> pd.Series:
+    """Faz o parsing de datas suprimindo warnings de formato misto/ambíguo."""
+    return pd.to_datetime(series, errors="coerce", dayfirst=True, format="mixed")
+
 def normalize_messages_dataframe(
     raw_dataframe: pd.DataFrame,
     author_column: str,
@@ -73,7 +77,7 @@ def normalize_messages_dataframe(
     
     # Preencher datetime
     if datetime_column is not None:
-        df["datetime"] = pd.to_datetime(raw_dataframe[datetime_column], errors="coerce")
+        df["datetime"] = _parse_datetime_series_safely(raw_dataframe[datetime_column])
     else:
         df["datetime"] = pd.NaT
         
