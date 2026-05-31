@@ -26,3 +26,25 @@ O arquivo principal é:
 
 ```text
 data/tweet.csv
+```
+
+## Versão 2.0 — Perfilador Estilométrico Universal
+
+A v2 permite criar perfil estilométrico a partir de CSV, texto simples ou exportação TXT do WhatsApp.
+
+**Formato padrão interno:**
+`author`, `text`, `datetime`, `source`, `metadata`
+
+**Como rodar:**
+```bash
+python -m streamlit run app.py
+```
+
+**Como testar os dados de exemplo:**
+```bash
+python scripts\validate_v2_sample_data.py
+```
+
+*Nota: a recriação de estilo ainda não está implementada.*
+
+> **Nota Ética:** o sistema deve ser usado com dados próprios, públicos ou autorizados, e não para falsificação de identidade.
