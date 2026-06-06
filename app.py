@@ -1,73 +1,14 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import joblib
-import re
-import emoji
-import matplotlib.pyplot as plt
-import io
+
+from src.features_v1 import extrair_features_v1
 
 from src.loaders.csv_loader import load_csv_messages
 from src.loaders.generic_text_loader import load_generic_text_messages
 from src.loaders.whatsapp_loader import load_whatsapp_txt_messages
 from src.stylometry.profile_builder import build_author_stylometric_profile
 
-
-def limpar_texto(texto):
-    texto = str(texto)
-    texto = re.sub(r"http\S+|www\S+|https\S+", "", texto)
-    texto = re.sub(r"@\w+", "", texto)
-    texto = re.sub(r"#", "", texto)
-    texto = re.sub(r"\s+", " ", texto).strip()
-    return texto
-
-
-def contar_emojis(texto):
-    return sum(1 for char in str(texto) if char in emoji.EMOJI_DATA)
-
-
-def extrair_features(texto_original):
-    texto_original = str(texto_original)
-    texto_limpo = limpar_texto(texto_original)
-
-    palavras = texto_limpo.split()
-    total_palavras = len(palavras)
-
-    if total_palavras == 0:
-        total_palavras = 1
-
-    tamanhos_palavras = [len(p) for p in palavras]
-
-    avg_word_length = np.mean(tamanhos_palavras) if tamanhos_palavras else 0
-    num_words = len(palavras)
-    num_unique_words = len(set(palavras))
-    unique_ratio = num_unique_words / total_palavras
-    num_chars = len(texto_limpo)
-
-    num_punctuation = sum(1 for c in texto_original if c in ".,;:")
-    letras = [c for c in texto_original if c.isalpha()]
-    num_uppercase = sum(1 for c in letras if c.isupper()) / len(letras) if letras else 0
-
-    num_emojis = contar_emojis(texto_original)
-    num_hashtags = len(re.findall(r"#\w+", texto_original))
-    num_mentions = len(re.findall(r"@\w+", texto_original))
-    num_exclamation = texto_original.count("!")
-    num_question = texto_original.count("?")
-
-    return {
-        "avg_word_length": avg_word_length,
-        "num_words": num_words,
-        "num_unique_words": num_unique_words,
-        "unique_ratio": unique_ratio,
-        "num_chars": num_chars,
-        "num_punctuation": num_punctuation,
-        "num_uppercase": num_uppercase,
-        "num_emojis": num_emojis,
-        "num_hashtags": num_hashtags,
-        "num_mentions": num_mentions,
-        "num_exclamation": num_exclamation,
-        "num_question": num_question
-    }
 
 
 modelo = joblib.load("models/modelo_final.pkl")
@@ -106,7 +47,7 @@ with tab1:
         if len(tweet.strip()) == 0:
             st.warning("Digite ou cole um tweet antes de continuar.")
         else:
-            features_extraidas = extrair_features(tweet)
+            features_extraidas = extrair_features_v1(tweet)
 
             entrada = pd.DataFrame([features_extraidas])
             entrada = entrada[features]

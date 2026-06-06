@@ -7,3 +7,4 @@ emoji
 matplotlib
 seaborn
 wordcloud
+scikit-learn==1.8.0
