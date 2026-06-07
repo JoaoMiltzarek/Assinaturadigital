@@ -1,7 +1,6 @@
 import sys
 import os
 
-# Adiciona a raiz do projeto ao sys.path para os imports funcionarem
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.loaders.csv_loader import load_csv_messages
@@ -23,14 +22,14 @@ def validate_profile(profile, expected_min_msgs, source_type):
 def main():
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     
-    # 1. CSV
+    # CSV
     csv_path = os.path.join(base_dir, 'sample_data', 'messages_example.csv')
     df_csv = load_csv_messages(csv_path, author_column='author', text_column='text', datetime_column='datetime')
     validate_dataframe(df_csv, 5, "CSV")
     prof_csv = build_author_stylometric_profile(df_csv, "Joao")
     validate_profile(prof_csv, 3, "CSV")
     
-    # 2. Generic Text
+    # Texto simples
     txt_path = os.path.join(base_dir, 'sample_data', 'generic_text_example.txt')
     with open(txt_path, 'r', encoding='utf-8') as f:
         text_content = f.read()
@@ -39,7 +38,7 @@ def main():
     prof_txt = build_author_stylometric_profile(df_txt, "Joao")
     validate_profile(prof_txt, 5, "Generic Text")
     
-    # 3. WhatsApp
+    # WhatsApp
     wpp_path = os.path.join(base_dir, 'sample_data', 'whatsapp_example.txt')
     with open(wpp_path, 'r', encoding='utf-8') as f:
         wpp_content = f.read()
