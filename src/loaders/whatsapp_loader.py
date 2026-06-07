@@ -1,9 +1,11 @@
 """
-src/loaders/whatsapp_loader.py
-
 Loader para arquivos .txt exportados do WhatsApp.
-Usa expressões regulares para detectar a data/hora, autor e mensagem.
-Lida com mensagens com quebra de linha.
+
+Objetivo:
+- Ler conversas exportadas do WhatsApp;
+- Separar data/hora, autor e texto;
+- Remover mídia omitida, chamadas, mensagens apagadas/editadas e mensagens de sistema;
+- Retornar DataFrame normalizado para a V2.
 """
 
 from __future__ import annotations
@@ -13,89 +15,237 @@ import pandas as pd
 
 from src.processing.normalizer import normalize_messages_dataframe
 
-# Padrão Android PT-BR: "31/05/2026 12:00 - Joao: oi kkk"
-_ANDROID_PATTERN = re.compile(
-    r"^(\d{2}/\d{2}/\d{2,4},?\s\d{2}:\d{2})\s-\s(.*?):\s(.*)$"
+
+_TIMESTAMP_CORE = (
+    r"\d{1,2}[\/\.-]\d{1,2}[\/\.-]\d{2,4},?\s+"
+    r"\d{1,2}:\d{2}(?::\d{2})?"
+    r"(?:\s?[APap]\.?[Mm]\.?)?"
 )
 
-# Padrão iOS/Colchetes: "[31/05/2026, 12:00:00] Joao: oi kkk"
-_IOS_PATTERN = re.compile(
-    r"^\[(\d{2}/\d{2}/\d{2,4},\s\d{2}:\d{2}(?::\d{2})?)\]\s(.*?):\s(.*)$"
+_MESSAGE_START_RE = re.compile(
+    rf"(?:\[\s*)?"
+    rf"{_TIMESTAMP_CORE}"
+    rf"(?:\s*\])?"
+    rf"\s*(?:-|–)?\s*"
+    rf"[^:\n]{{1,80}}"
+    rf":\s*"
 )
 
-_TIMESTAMP_PATTERN = re.compile(
-    r"^(?:\[\d{2}/\d{2}/\d{2,4},\s\d{2}:\d{2}(?::\d{2})?\]"
-    r"|\d{2}/\d{2}/\d{2,4},?\s\d{2}:\d{2}\s-)"
+_MESSAGE_RE = re.compile(
+    rf"^\s*"
+    rf"(?:\[\s*)?"
+    rf"(?P<datetime>{_TIMESTAMP_CORE})"
+    rf"(?:\s*\])?"
+    rf"\s*(?:-|–)?\s*"
+    rf"(?P<author>[^:\n]{{1,80}})"
+    rf":\s*"
+    rf"(?P<text>.*)"
+    rf"\s*$"
 )
+
+
+INVISIBLE_CHARS = [
+    "\u200e",
+    "\u200f",
+    "\u202a",
+    "\u202b",
+    "\u202c",
+    "\ufeff",
+]
+
+
+NOISE_EXACT_MESSAGES = {
+    "",
+    "sticker omitted",
+    "image omitted",
+    "audio omitted",
+    "video omitted",
+    "gif omitted",
+    "document omitted",
+    "contact card omitted",
+    "location omitted",
+    "voice call",
+    "video call",
+    "missed voice call",
+    "missed video call",
+    "this message was deleted",
+    "this message was edited",
+    "<this message was edited>",
+    "<this message was deleted>",
+    "imagem omitida",
+    "áudio omitido",
+    "audio omitido",
+    "vídeo omitido",
+    "video omitido",
+    "figurinha omitida",
+    "documento omitido",
+    "cartão de contato omitido",
+    "cartao de contato omitido",
+    "localização omitida",
+    "localizacao omitida",
+    "mídia oculta",
+    "midia oculta",
+    "<mídia oculta>",
+    "<midia oculta>",
+}
+
+
+NOISE_CONTAINS = [
+    "messages and calls are end-to-end encrypted",
+    "as mensagens e chamadas são protegidas",
+    "as mensagens e as chamadas são protegidas",
+    "changed their phone number",
+    "mudou de número",
+    "alterou o código de segurança",
+    "changed the subject",
+    "changed this group's icon",
+    "created group",
+    "criou o grupo",
+    "adicionou",
+    "removeu",
+    "saiu",
+    "left",
+    "joined using this group's invite link",
+]
+
+
+def _remove_invisible_chars(content: str) -> str:
+    content = str(content)
+
+    for char in INVISIBLE_CHARS:
+        content = content.replace(char, "")
+
+    return content
+
+
+def _normalize_whatsapp_text(text: str) -> str:
+    """
+    Limpa o texto da mensagem sem destruir estilo.
+    Mantém pontuação, emojis e gírias reais.
+    Remove lixo técnico do WhatsApp.
+    """
+    text = str(text).strip()
+
+    text = text.replace("\n", " ")
+    text = re.sub(r"\s+", " ", text).strip()
+
+    # Remove marcadores de mensagem editada/apagada.
+    text = re.sub(r"<?this message was edited>?", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"<?this message was deleted>?", "", text, flags=re.IGNORECASE)
+
+    # Remove links, porque eles poluem o vocabulário.
+    text = re.sub(r"https?://\S+|www\.\S+", "", text)
+
+    text = re.sub(r"\s+", " ", text).strip()
+
+    return text
+
+
+def _is_noise_message(text: str) -> bool:
+    """
+    Decide se uma mensagem deve ser descartada.
+    """
+    text = _normalize_whatsapp_text(text)
+    lower = text.lower().strip()
+
+    if lower in NOISE_EXACT_MESSAGES:
+        return True
+
+    if not lower:
+        return True
+
+    # Remove mídia omitida em inglês.
+    if re.fullmatch(r"(sticker|image|audio|video|gif|document|location|contact card)\s+omitted", lower):
+        return True
+
+    # Remove mídia omitida em português.
+    if re.fullmatch(r"(imagem|áudio|audio|vídeo|video|figurinha|documento|localização|localizacao)\s+omitid[ao]", lower):
+        return True
+
+    # Remove chamadas.
+    if "voice call" in lower or "video call" in lower:
+        return True
+
+    # Remove mensagens de sistema.
+    if any(marker in lower for marker in NOISE_CONTAINS):
+        return True
+
+    # Remove mensagem que é só pontuação/símbolo.
+    if re.fullmatch(r"[\W_]+", lower):
+        return True
+
+    return False
+
+
+def _split_whatsapp_records(content: str) -> list[str]:
+    """
+    Divide o arquivo em mensagens.
+
+    Em vez de ler linha por linha, encontra todos os inícios de mensagem.
+    Isso evita quebrar mensagens multilinha e também resolve exportações grudadas.
+    """
+    content = _remove_invisible_chars(content)
+    content = content.replace("\r\n", "\n").replace("\r", "\n")
+
+    starts = [match.start() for match in _MESSAGE_START_RE.finditer(content)]
+
+    if not starts:
+        return [line.strip() for line in content.splitlines() if line.strip()]
+
+    records = []
+
+    for i, start in enumerate(starts):
+        end = starts[i + 1] if i + 1 < len(starts) else len(content)
+        record = content[start:end].strip()
+
+        if record:
+            record = re.sub(r"\s*\n\s*", " ", record)
+            record = re.sub(r"\s+", " ", record).strip()
+            records.append(record)
+
+    return records
+
 
 def load_whatsapp_txt_messages(
     text_content: str,
     source_name: str = "whatsapp",
 ) -> pd.DataFrame:
     """
-    Transforma texto exportado do WhatsApp em um DataFrame normalizado.
-    
-    Tenta capturar o formato Android ou iOS/Colchetes. Se uma linha não for
-    reconhecida como nova mensagem (sem autor/data), ela é anexada à 
-    mensagem imediatamente anterior.
-    
-    Args:
-        text_content: Conteúdo completo do arquivo .txt.
-        source_name: Nome da fonte.
-        
-    Returns:
-        DataFrame padronizado.
+    Lê um TXT exportado do WhatsApp e retorna DataFrame normalizado.
+
+    Colunas finais:
+    - author
+    - text
+    - datetime
+    - source
+    - metadata
     """
-    lines = text_content.splitlines()
-    
+    records = _split_whatsapp_records(text_content)
+
     parsed_messages = []
-    current_msg = None
-    
-    for line in lines:
-        if not line.strip():
-            continue
-            
-        # Tenta casar com Android
-        match_android = _ANDROID_PATTERN.match(line)
-        if match_android:
-            if current_msg:
-                parsed_messages.append(current_msg)
-            current_msg = {
-                "datetime": match_android.group(1),
-                "author": match_android.group(2).strip(),
-                "text": match_android.group(3).strip(),
-            }
-            continue
-            
-        # Tenta casar com iOS
-        match_ios = _IOS_PATTERN.match(line)
-        if match_ios:
-            if current_msg:
-                parsed_messages.append(current_msg)
-            current_msg = {
-                "datetime": match_ios.group(1).replace(",", ""),
-                "author": match_ios.group(2).strip(),
-                "text": match_ios.group(3).strip(),
-            }
-            continue
-            
-        # Se não casou com nenhum, é continuação da mensagem anterior (ou sistema)
-        if _TIMESTAMP_PATTERN.match(line):
+
+    for record in records:
+        match = _MESSAGE_RE.match(record)
+
+        if not match:
             continue
 
-        if current_msg is not None:
-            current_msg["text"] += "\n" + line.strip()
-            
-    # Adiciona a última mensagem pendente
-    if current_msg:
-        parsed_messages.append(current_msg)
-        
-    # Cria DataFrame bruto
-    if parsed_messages:
-        raw_df = pd.DataFrame(parsed_messages)
-    else:
-        raw_df = pd.DataFrame(columns=["datetime", "author", "text"])
-        
+        author = match.group("author").strip()
+        text = _normalize_whatsapp_text(match.group("text"))
+
+        if _is_noise_message(text):
+            continue
+
+        parsed_messages.append(
+            {
+                "datetime": match.group("datetime").replace(",", "").strip(),
+                "author": author,
+                "text": text,
+            }
+        )
+
+    raw_df = pd.DataFrame(parsed_messages, columns=["datetime", "author", "text"])
+
     return normalize_messages_dataframe(
         raw_dataframe=raw_df,
         author_column="author",
