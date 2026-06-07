@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from collections import Counter
 import re
+import unicodedata
 
 import pandas as pd
 
@@ -49,76 +50,123 @@ _TOP_N = 10
 
 _MIN_WORD_LENGTH = 2
 
+_NOISE_PROFILE_TOKENS = {
+    "voice", "call", "message", "edited", "deleted", "omitted",
+    "sticker", "audio", "image", "video", "gif", "document",
+    "location", "contact", "card", "missed",
+    "this", "was",
+    "mídia", "midia", "oculta",
+    "imagem", "áudio", "audio", "vídeo", "video",
+    "figurinha", "omitida", "omitido",
+}
+
+_KNOWN_ABBREVIATIONS = {
+    "vc": ["você", "voce"],
+    "pq": ["porque", "por que"],
+    "tbm": ["também", "tambem"],
+    "hj": ["hoje"],
+    "to": ["estou", "eu estou"],
+    "tô": ["estou", "eu estou"],
+    "ta": ["está", "esta"],
+    "tá": ["está", "esta"],
+    "pra": ["para"],
+    "bora": ["vamos"],
+}
+
+_LAUGHTER_PATTERN = re.compile(
+    r"\b(k{3,}|(ha){2,}|(rs){2,}|(he){2,})\b",
+    re.IGNORECASE,
+)
+
+def _fold_token(text: str) -> str:
+    """
+    Normaliza token para comparação:
+    João -> joao
+    Jõao -> joao
+    """
+    text = str(text).lower().strip()
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(char for char in text if not unicodedata.combining(char))
+    return text
+
+
+def _build_blocked_author_terms(messages_dataframe: pd.DataFrame) -> set[str]:
+    """
+    Cria uma lista de termos proibidos com base nos nomes dos autores.
+
+    Exemplo:
+    'Joao Silva' bloqueia 'joao' e 'silva'.
+    """
+    blocked = set()
+
+    if "author" not in messages_dataframe.columns:
+        return blocked
+
+    for author in messages_dataframe["author"].dropna().unique():
+        parts = re.findall(r"[A-Za-zÀ-ÿ0-9_]+", str(author).lower())
+
+        for part in parts:
+            folded = _fold_token(part)
+
+            if len(folded) >= 2:
+                blocked.add(folded)
+
+    return blocked
 
 
 
-def _normalize_profile_token(token: str) -> str:
+
+def _normalize_profile_token(token: str, blocked_terms: set[str] | None = None) -> str:
     """
     Normaliza uma palavra para contagem no perfil.
-    Remove datas, horários, mídia omitida, links e marcadores técnicos.
+
+    Remove:
+    - datas;
+    - horários;
+    - links;
+    - números puros;
+    - lixo técnico;
+    - nomes dos autores;
+    - pontuação solta.
     """
+    blocked_terms = blocked_terms or set()
+
     token = str(token).lower().strip()
     token = token.strip("[](){}.,;:!?\"'“”‘’<>")
 
     if not token:
         return ""
 
-    # Datas: 7/1/26, 10/2/2026, 07-01-26, 07.01.26
+    folded = _fold_token(token)
+
+    if folded in blocked_terms:
+        return ""
+
     if re.fullmatch(r"\d{1,2}[\/\.-]\d{1,2}[\/\.-]\d{2,4}", token):
         return ""
 
-    # Horários: 12:21 ou 12:21:05
     if re.fullmatch(r"\d{1,2}:\d{2}(?::\d{2})?", token):
         return ""
 
-    # Links
     if token.startswith("http") or token.startswith("www"):
         return ""
 
-    # Lixo técnico de WhatsApp
-    noise_tokens = {
-        "omitted",
-        "sticker",
-        "audio",
-        "image",
-        "video",
-        "gif",
-        "document",
-        "location",
-        "contact",
-        "card",
-        "voice",
-        "call",
-        "missed",
-        "this",
-        "message",
-        "was",
-        "edited",
-        "deleted",
-        "mídia",
-        "midia",
-        "oculta",
-        "imagem",
-        "áudio",
-        "audio",
-        "vídeo",
-        "video",
-        "figurinha",
-        "omitida",
-        "omitido",
-    }
-
-    if token in noise_tokens:
+    if token in _NOISE_PROFILE_TOKENS or folded in _NOISE_PROFILE_TOKENS:
         return ""
 
-
     if token.isdigit():
+        return ""
+
+    if re.fullmatch(r"[\W_]+", token):
         return ""
 
     return token
 
 
-def _tokenize_words_for_profile(text: str) -> list[str]:
+def _tokenize_words_for_profile(
+    text: str,
+    blocked_terms: set[str] | None = None,
+) -> list[str]:
     """
     Tokeniza palavras para top_words.
 
@@ -133,7 +181,7 @@ def _tokenize_words_for_profile(text: str) -> list[str]:
     words = []
 
     for raw_word in raw_words:
-        word = _normalize_profile_token(raw_word)
+        word = _normalize_profile_token(raw_word, blocked_terms)
 
         if len(word) >= _MIN_WORD_LENGTH and word not in _STOPWORDS:
             words.append(word)
@@ -141,7 +189,10 @@ def _tokenize_words_for_profile(text: str) -> list[str]:
     return words
 
 
-def _tokenize_all_words(text: str) -> list[str]:
+def _tokenize_all_words(
+    text: str,
+    blocked_terms: set[str] | None = None,
+) -> list[str]:
     """
     Tokeniza palavras para bigramas.
 
@@ -152,7 +203,7 @@ def _tokenize_all_words(text: str) -> list[str]:
     words = []
 
     for raw_word in raw_words:
-        word = _normalize_profile_token(raw_word)
+        word = _normalize_profile_token(raw_word, blocked_terms)
 
         if len(word) >= _MIN_WORD_LENGTH:
             words.append(word)
@@ -160,7 +211,10 @@ def _tokenize_all_words(text: str) -> list[str]:
     return words
 
 
-def _build_top_words(cleaned_texts: list[str]) -> list[dict[str, object]]:
+def _build_top_words(
+    cleaned_texts: list[str],
+    blocked_terms: set[str] | None = None,
+) -> list[dict[str, object]]:
     """
     Retorna as palavras mais frequentes (sem stopwords) entre todas as mensagens.
 
@@ -172,7 +226,7 @@ def _build_top_words(cleaned_texts: list[str]) -> list[dict[str, object]]:
     """
     counter: Counter[str] = Counter()
     for text in cleaned_texts:
-        tokens = _tokenize_words_for_profile(text)
+        tokens = _tokenize_words_for_profile(text, blocked_terms)
         counter.update(tokens)
 
     return [
@@ -181,7 +235,10 @@ def _build_top_words(cleaned_texts: list[str]) -> list[dict[str, object]]:
     ]
 
 
-def _build_top_bigrams(cleaned_texts: list[str]) -> list[dict[str, object]]:
+def _build_top_bigrams(
+    cleaned_texts: list[str],
+    blocked_terms: set[str] | None = None,
+) -> list[dict[str, object]]:
     """
     Retorna os bigramas (pares de palavras consecutivas) mais frequentes.
 
@@ -196,7 +253,7 @@ def _build_top_bigrams(cleaned_texts: list[str]) -> list[dict[str, object]]:
     """
     counter: Counter[str] = Counter()
     for text in cleaned_texts:
-        tokens = _tokenize_all_words(text)
+        tokens = _tokenize_all_words(text, blocked_terms)
 
         bigrams = [f"{tokens[i]} {tokens[i+1]}" for i in range(len(tokens) - 1)]
         counter.update(bigrams)
@@ -287,6 +344,32 @@ def _select_sample_messages(messages: list[str]) -> dict[str, str]:
     }
 
 
+def _detect_abbreviations(texts: list[str]) -> dict[str, int]:
+    counter = Counter()
+
+    for text in texts:
+        tokens = re.findall(r"[A-Za-zÀ-ÿ0-9_]+", str(text).lower())
+
+        for token in tokens:
+            if token in _KNOWN_ABBREVIATIONS:
+                counter[token] += 1
+
+    return dict(counter)
+
+
+def _detect_laughter_patterns(texts: list[str]) -> dict[str, int]:
+    counter = Counter()
+
+    for text in texts:
+        matches = _LAUGHTER_PATTERN.findall(str(text).lower())
+
+        for match in matches:
+            laughter = match[0]
+            if laughter:
+                counter[laughter] += 1
+
+    return dict(counter)
+
 
 def build_author_stylometric_profile(
     messages_dataframe: pd.DataFrame,
@@ -340,6 +423,8 @@ def build_author_stylometric_profile(
     raw_texts: list[str] = [str(t) for t in author_rows["text"]]
     cleaned_texts: list[str] = [clean_text_for_stylometry(t) for t in raw_texts]
 
+    blocked_terms = _build_blocked_author_terms(messages_dataframe)
+
 
     all_features: list[dict[str, float | int]] = [
         extract_stylometric_features(t) for t in raw_texts
@@ -368,8 +453,10 @@ def build_author_stylometric_profile(
         "total_exclamation": _total("num_exclamation"),
         "total_question": _total("num_question"),
 
-        "top_words": _build_top_words(cleaned_texts),
-        "top_bigrams": _build_top_bigrams(cleaned_texts),
+        "top_words": _build_top_words(cleaned_texts, blocked_terms),
+"top_bigrams": _build_top_bigrams(cleaned_texts, blocked_terms),
+"detected_abbreviations": _detect_abbreviations(raw_texts),
+"laughter_patterns": _detect_laughter_patterns(raw_texts),
 
         "sample_messages": _select_sample_messages(raw_texts),
     }

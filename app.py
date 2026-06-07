@@ -340,9 +340,12 @@ def inject_custom_css():
 
 
 
-modelo = joblib.load("models/modelo_final.pkl")
-scaler = joblib.load("models/scaler.pkl")
-features = joblib.load("models/features.pkl")
+@st.cache_resource
+def load_v1_pipeline():
+    return joblib.load("models/v1_pipeline.pkl")
+
+
+pipeline_v1 = load_v1_pipeline()
 
 
 st.set_page_config(
@@ -406,13 +409,9 @@ with tab1:
             st.warning("Digite ou cole um tweet antes de continuar.")
         else:
             features_extraidas = extrair_features_v1(tweet)
-
             entrada = pd.DataFrame([features_extraidas])
-            entrada = entrada[features]
 
-            entrada_scaled = scaler.transform(entrada)
-
-            autor_previsto = modelo.predict(entrada_scaled)[0]
+            autor_previsto = pipeline_v1.predict([tweet])[0]
 
             st.markdown(
                 f"""
@@ -427,9 +426,9 @@ with tab1:
                 unsafe_allow_html=True
             )
 
-            if hasattr(modelo, "predict_proba"):
-                probabilidades = modelo.predict_proba(entrada_scaled)[0]
-                classes = modelo.classes_
+            if hasattr(pipeline_v1, "predict_proba"):
+                probabilidades = pipeline_v1.predict_proba([tweet])[0]
+                classes = pipeline_v1.classes_
 
                 df_probs = pd.DataFrame({
                     "Autor": classes,
@@ -438,8 +437,25 @@ with tab1:
 
                 st.write("### Confiança por autor")
                 st.dataframe(df_probs)
-
                 st.bar_chart(df_probs.set_index("Autor"))
+
+            elif hasattr(pipeline_v1, "decision_function"):
+                scores = pipeline_v1.decision_function([tweet])[0]
+                classes = pipeline_v1.classes_
+
+                df_scores = pd.DataFrame({
+                    "Autor": classes,
+                    "Score interno": scores
+                }).sort_values(by="Score interno", ascending=False)
+
+                st.write("### Ranking interno por autor")
+                st.caption(
+                    "Este modelo não gera probabilidade direta. "
+                    "O score abaixo é uma pontuação interna do classificador."
+                )
+                st.dataframe(df_scores)
+                st.bar_chart(df_scores.set_index("Autor"))
+
             st.dataframe(entrada)
 
 with tab2:
@@ -481,11 +497,58 @@ with tab2:
             if raw_text.strip():
                 df = load_generic_text_messages(raw_text, author_name=author_name)
 
-        elif input_type == "CSV":
-            uploaded_file = st.file_uploader(
-                "Envie um arquivo CSV com mensagens",
+            elif input_type == "CSV":
+                uploaded_csv = st.file_uploader(
+                "Envie um arquivo CSV",
                 type=["csv"]
             )
+
+            
+
+            if uploaded_csv is not None:
+                preview_df = pd.read_csv(uploaded_csv)
+                st.write("### Prévia do CSV")
+                st.dataframe(preview_df.head(10))
+
+                columns = preview_df.columns.tolist()
+
+                author_column = st.selectbox(
+                    "Coluna do autor",
+                    columns
+                )
+
+                text_column = st.selectbox(
+                    "Coluna do texto",
+                    columns
+                )
+
+                datetime_column = st.selectbox(
+                    "Coluna de data/hora, se existir",
+                    ["Nenhuma"] + columns
+                )
+
+                if st.button("Carregar CSV"):
+                    datetime_column_value = None
+                    if datetime_column != "Nenhuma":
+                        datetime_column_value = datetime_column
+
+                    df = load_csv_messages(
+                        preview_df,
+                        author_column=author_column,
+                        text_column=text_column,
+                        datetime_column=datetime_column_value,
+                        source_name="csv_upload"
+                    )
+
+
+                    if "v2_messages_df" in st.session_state:
+                        df = st.session_state["v2_messages_df"]
+
+                    
+
+                    st.session_state["v2_messages_df"] = df
+
+                    st.success(f"{len(df)} mensagens carregadas do CSV.")
             if uploaded_file is not None:
                 temp_df = pd.read_csv(uploaded_file)
                 st.write("Colunas disponíveis no CSV:")
@@ -506,15 +569,41 @@ with tab2:
                 "Envie o .txt exportado do WhatsApp",
                 type=["txt"]
             )
+
             if uploaded_file is not None:
                 content = uploaded_file.read().decode("utf-8", errors="replace")
-                df = load_whatsapp_txt_messages(content)
+
+                try:
+                    df, import_stats = load_whatsapp_txt_messages(
+                        content,
+                        return_stats=True
+                    )
+
+                    st.write("### Estatísticas de importação")
+                    col_a, col_b, col_c = st.columns(3)
+                    col_a.metric("Registros encontrados", import_stats["total_records_found"])
+                    col_b.metric("Mensagens válidas", import_stats["valid_messages"])
+                    col_c.metric("Mensagens descartadas", import_stats["discarded_messages"])
+
+                    if import_stats["discard_reasons"]:
+                        st.write("Motivos de descarte:")
+                        st.dataframe(
+                            pd.DataFrame(
+                                [
+                                    {"motivo": key, "quantidade": value}
+                                    for key, value in import_stats["discard_reasons"].items()
+                                ]
+                            )
+                        )
+                except TypeError:
+                    df = load_whatsapp_txt_messages(content)
 
         if df is not None and not df.empty:
             st.success(f"{len(df)} mensagens carregadas com sucesso.")
             autores = df["author"].value_counts()
-            st.write("Mensagens por autor:")
-            st.dataframe(autores)
+            st.write("### Prévia das mensagens limpas")
+            st.caption("Estas são as mensagens que realmente entrarão no perfil.")
+            st.dataframe(df[["datetime", "author", "text"]].head(20))
 
             selected_author = st.selectbox("Selecione o autor para gerar o perfil:", autores.index)
 

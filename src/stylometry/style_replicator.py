@@ -41,8 +41,14 @@ def _get_profile_terms(profile: dict) -> set[str]:
 
 
 def _author_uses(profile: dict, expression: str) -> bool:
-    terms = _get_profile_terms(profile)
     expression = expression.lower().strip()
+
+    detected_abbreviations = profile.get("detected_abbreviations", {}) or {}
+
+    if expression in detected_abbreviations and detected_abbreviations[expression] > 0:
+        return True
+
+    terms = _get_profile_terms(profile)
 
     return expression in terms
 
@@ -92,18 +98,16 @@ def _apply_only_author_abbreviations(text: str, profile: dict) -> str:
 
 
 def _author_laughter(profile: dict) -> str:
+    laughter_patterns = profile.get("laughter_patterns", {}) or {}
+
+    if laughter_patterns:
+        return max(laughter_patterns, key=laughter_patterns.get)
+
     terms = _get_profile_terms(profile)
 
-    if "kkkkkk" in terms:
-        return "kkkkkk"
-    if "kkkkk" in terms:
-        return "kkkkk"
-    if "kkkk" in terms:
-        return "kkkk"
-    if "kkk" in terms:
-        return "kkk"
-    if "haha" in terms:
-        return "haha"
+    for laughter in ["kkkkkk", "kkkkk", "kkkk", "kkk", "haha", "rsrs", "hehe"]:
+        if laughter in terms:
+            return laughter
 
     return ""
 
@@ -187,6 +191,8 @@ def explain_rewrite_rules(profile: dict) -> list[str]:
     avg_chars = _get_float(profile, "avg_chars_per_message", 0.0)
 
     terms = _get_profile_terms(profile)
+    detected_abbreviations = profile.get("detected_abbreviations", {}) or {}
+    laughter_patterns = profile.get("laughter_patterns", {}) or {}
 
     rules = [
         f"Foram analisadas {message_count} mensagens do autor.",
@@ -198,7 +204,7 @@ def explain_rewrite_rules(profile: dict) -> list[str]:
     used_abbreviations = []
 
     for abbreviation in ["vc", "pq", "tbm", "hj", "to", "tô", "ta", "tá", "pra", "bora"]:
-        if abbreviation in terms:
+        if abbreviation in detected_abbreviations or abbreviation in terms:
             used_abbreviations.append(abbreviation)
 
     if used_abbreviations:

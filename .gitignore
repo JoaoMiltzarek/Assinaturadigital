@@ -1,4 +1,4 @@
-﻿# Ambiente virtual
+# Ambiente virtual
 .venv/
 venv/
 env/
@@ -27,3 +27,4 @@ Thumbs.db
 !models/modelo_final.pkl
 !models/scaler.pkl
 !models/features.pkl
+!models/v1_pipeline.pkl
