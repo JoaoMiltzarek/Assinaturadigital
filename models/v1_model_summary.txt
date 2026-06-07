@@ -1,0 +1,9 @@
+Melhor modelo: linear_svm
+Treino: 14010 exemplos
+Teste: 4670 exemplos
+
+Métricas:
+              model  accuracy  precision_macro  recall_macro  f1_macro
+         linear_svm  0.846895         0.846079      0.844665  0.845100
+logistic_regression  0.832120         0.832187      0.829148  0.829805
+      complement_nb  0.756317         0.760855      0.750876  0.752790
