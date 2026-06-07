@@ -1,7 +1,6 @@
 import sys
 import os
 
-# Adiciona o diretório raiz ao PYTHONPATH para permitir imports do pacote src
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.loaders.whatsapp_loader import load_whatsapp_txt_messages

@@ -119,23 +119,16 @@ def _clean_message_text(text: str) -> str:
     text = _remove_invisible_chars(text)
     text = _normalize_spaces(text)
 
-    # Remove marcador de edição sem destruir a mensagem real.
     for marker in EDITED_MARKERS:
         text = re.sub(re.escape(marker), "", text, flags=re.IGNORECASE)
 
-    # Remove links do texto usado para perfil.
     text = re.sub(r"https?://\S+|www\.\S+", "", text)
 
     return _normalize_spaces(text)
 
 
 def _split_records(content: str) -> list[str]:
-    """
-    Divide o TXT em mensagens.
-
-    Funciona melhor que split por linha porque WhatsApp pode exportar
-    mensagens multilinha e também mensagens grudadas.
-    """
+    """Divide o TXT em registros de mensagem."""
     content = _remove_invisible_chars(content)
     content = content.replace("\r\n", "\n").replace("\r", "\n")
 
@@ -195,15 +188,6 @@ def load_whatsapp_txt_messages(
     source_name: str = "whatsapp",
     return_stats: bool = False,
 ):
-    """
-    Lê um TXT exportado do WhatsApp e retorna DataFrame normalizado.
-
-    Se return_stats=True, retorna:
-        (dataframe, stats)
-
-    Caso contrário, retorna apenas:
-        dataframe
-    """
     records = _split_records(text_content)
 
     parsed_messages = []

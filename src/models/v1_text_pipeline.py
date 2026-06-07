@@ -13,13 +13,6 @@ from src.features_v1 import FEATURES_V1, extrair_features_v1
 
 
 class ManualStylometryTransformer(BaseEstimator, TransformerMixin):
-    """
-    Transforma uma lista de textos em features manuais da V1.
-
-    Usa a função oficial extrair_features_v1 para garantir que treino
-    e inferência usem exatamente a mesma lógica.
-    """
-
     def fit(self, X: Iterable[str], y=None):
         return self
 
@@ -35,16 +28,6 @@ class ManualStylometryTransformer(BaseEstimator, TransformerMixin):
 
 
 def build_v1_pipeline(classifier) -> Pipeline:
-    """
-    Monta o pipeline completo da V1:
-
-    texto bruto
-        → features manuais escaladas
-        → TF-IDF de caracteres
-        → concatenação
-        → classificador
-    """
-
     manual_features_pipeline = Pipeline(
         steps=[
             ("manual_features", ManualStylometryTransformer()),

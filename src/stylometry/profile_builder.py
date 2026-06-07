@@ -1,17 +1,4 @@
-"""
-src/stylometry/profile_builder.py
-
-Construtor de perfil estilométrico agregado para um autor específico.
-
-Responsabilidade única: dado um DataFrame com múltiplas mensagens e o nome
-de um autor, calcular médias, totais e análises textuais, retornando um
-dicionário completo de perfil estilométrico.
-
-Versão 4B — adicionadas as chaves:
-    top_words      : palavras mais frequentes do autor
-    top_bigrams    : bigramas (pares de palavras) mais frequentes
-    sample_messages: exemplos real de mensagens (curta, média, longa)
-"""
+"""Constrói perfis estilométricos agregados por autor."""
 
 from __future__ import annotations
 
@@ -79,11 +66,6 @@ _LAUGHTER_PATTERN = re.compile(
 )
 
 def _fold_token(text: str) -> str:
-    """
-    Normaliza token para comparação:
-    João -> joao
-    Jõao -> joao
-    """
     text = str(text).lower().strip()
     text = unicodedata.normalize("NFKD", text)
     text = "".join(char for char in text if not unicodedata.combining(char))
@@ -91,12 +73,6 @@ def _fold_token(text: str) -> str:
 
 
 def _build_blocked_author_terms(messages_dataframe: pd.DataFrame) -> set[str]:
-    """
-    Cria uma lista de termos proibidos com base nos nomes dos autores.
-
-    Exemplo:
-    'Joao Silva' bloqueia 'joao' e 'silva'.
-    """
     blocked = set()
 
     if "author" not in messages_dataframe.columns:
@@ -113,22 +89,7 @@ def _build_blocked_author_terms(messages_dataframe: pd.DataFrame) -> set[str]:
 
     return blocked
 
-
-
-
 def _normalize_profile_token(token: str, blocked_terms: set[str] | None = None) -> str:
-    """
-    Normaliza uma palavra para contagem no perfil.
-
-    Remove:
-    - datas;
-    - horários;
-    - links;
-    - números puros;
-    - lixo técnico;
-    - nomes dos autores;
-    - pontuação solta.
-    """
     blocked_terms = blocked_terms or set()
 
     token = str(token).lower().strip()
@@ -167,16 +128,6 @@ def _tokenize_words_for_profile(
     text: str,
     blocked_terms: set[str] | None = None,
 ) -> list[str]:
-    """
-    Tokeniza palavras para top_words.
-
-    Remove:
-    - stopwords;
-    - datas;
-    - horários;
-    - mídia omitida;
-    - tokens técnicos do WhatsApp.
-    """
     raw_words = str(text).lower().split()
     words = []
 
@@ -193,12 +144,6 @@ def _tokenize_all_words(
     text: str,
     blocked_terms: set[str] | None = None,
 ) -> list[str]:
-    """
-    Tokeniza palavras para bigramas.
-
-    Mantém stopwords porque expressões como "to aqui", "na academia",
-    "pior que" podem ser estilo real.
-    """
     raw_words = str(text).lower().split()
     words = []
 
@@ -215,15 +160,6 @@ def _build_top_words(
     cleaned_texts: list[str],
     blocked_terms: set[str] | None = None,
 ) -> list[dict[str, object]]:
-    """
-    Retorna as palavras mais frequentes (sem stopwords) entre todas as mensagens.
-
-    Args:
-        cleaned_texts: Lista de textos já limpos com clean_text_for_stylometry.
-
-    Returns:
-        Lista de dicts [{"term": str, "count": int}] ordenada por frequência.
-    """
     counter: Counter[str] = Counter()
     for text in cleaned_texts:
         tokens = _tokenize_words_for_profile(text, blocked_terms)
@@ -239,18 +175,6 @@ def _build_top_bigrams(
     cleaned_texts: list[str],
     blocked_terms: set[str] | None = None,
 ) -> list[dict[str, object]]:
-    """
-    Retorna os bigramas (pares de palavras consecutivas) mais frequentes.
-
-    NÃO remove stopwords para preservar expressões informais importantes
-    no português como "pior que", "tipo assim", "muito bom".
-
-    Args:
-        cleaned_texts: Lista de textos já limpos com clean_text_for_stylometry.
-
-    Returns:
-        Lista de dicts [{"term": str, "count": int}] ordenada por frequência.
-    """
     counter: Counter[str] = Counter()
     for text in cleaned_texts:
         tokens = _tokenize_all_words(text, blocked_terms)
@@ -265,29 +189,6 @@ def _build_top_bigrams(
 
 
 def _is_valid_sample_message(message: str) -> bool:
-    """Evita usar mensagens vazias, pontuação solta ou mídia omitida como exemplo."""
-    text = str(message).strip()
-    lower = text.lower()
-
-    if len(text) < 3:
-        return False
-
-    if re.fullmatch(r"[\W_]+", text):
-        return False
-
-    if "omitted" in lower and len(lower.split()) <= 4:
-        return False
-
-    if lower in {"sticker omitted", "audio omitted", "image omitted", "video omitted"}:
-        return False
-
-    return True
-
-
-def _is_valid_sample_message(message: str) -> bool:
-    """
-    Evita usar mídia, mensagem apagada/editada, chamada ou lixo como exemplo.
-    """
     text = str(message).strip()
     lower = text.lower()
 
@@ -315,10 +216,6 @@ def _is_valid_sample_message(message: str) -> bool:
 
 
 def _select_sample_messages(messages: list[str]) -> dict[str, str]:
-    """
-    Seleciona mensagens reais de exemplo.
-    Limita a mensagem longa para não explodir a tela.
-    """
     valid_messages = [
         str(message).strip()
         for message in messages
@@ -375,31 +272,7 @@ def build_author_stylometric_profile(
     messages_dataframe: pd.DataFrame,
     author_name: str,
 ) -> dict[str, object]:
-    """
-    Constrói um perfil estilométrico completo e agregado para um autor.
-
-    Filtra as mensagens do autor no DataFrame, extrai features numéricas
-    de cada mensagem, agrega em médias e totais, e adiciona análise de
-    vocabulário (top_words, top_bigrams) e exemplos reais (sample_messages).
-
-    Args:
-        messages_dataframe: DataFrame com pelo menos as colunas 'author' e 'text'.
-        author_name: Nome exato do autor cujo perfil será construído.
-
-    Returns:
-        Dicionário com as chaves:
-            author, message_count,
-            avg_words_per_message, avg_chars_per_message, avg_word_length,
-            avg_unique_ratio, avg_uppercase_ratio, avg_punctuation_ratio,
-            avg_emoji_ratio, total_emojis, total_laughter,
-            total_exclamation, total_question,
-            top_words, top_bigrams, sample_messages
-
-    Raises:
-        ValueError: Se as colunas obrigatórias não existirem.
-        ValueError: Se o autor não tiver mensagens no DataFrame.
-    """
-
+    """Gera o perfil estilométrico de um autor."""
     missing_columns = _REQUIRED_COLUMNS - set(messages_dataframe.columns)
     if missing_columns:
         raise ValueError(
@@ -454,10 +327,9 @@ def build_author_stylometric_profile(
         "total_question": _total("num_question"),
 
         "top_words": _build_top_words(cleaned_texts, blocked_terms),
-"top_bigrams": _build_top_bigrams(cleaned_texts, blocked_terms),
-"detected_abbreviations": _detect_abbreviations(raw_texts),
-"laughter_patterns": _detect_laughter_patterns(raw_texts),
-
+        "top_bigrams": _build_top_bigrams(cleaned_texts, blocked_terms),
+        "detected_abbreviations": _detect_abbreviations(raw_texts),
+        "laughter_patterns": _detect_laughter_patterns(raw_texts),
         "sample_messages": _select_sample_messages(raw_texts),
     }
 

@@ -13,9 +13,7 @@ from src.stylometry.style_replicator import (
 )
 
 
-# ============================================================
-# Configuração visual
-# ============================================================
+# Config
 
 st.set_page_config(
     page_title="AssinaturaDigital",
@@ -24,6 +22,7 @@ st.set_page_config(
 )
 
 
+# CSS
 def inject_custom_css() -> None:
     st.markdown(
         """
@@ -153,36 +152,15 @@ def inject_custom_css() -> None:
 inject_custom_css()
 
 
-# ============================================================
-# Funções auxiliares
-# ============================================================
-
+# Helpers
 @st.cache_resource
 def load_v1_pipeline():
-    """
-    Carrega o pipeline único da V1.
-
-    Ele deve conter:
-    - features manuais;
-    - TF-IDF char n-grams;
-    - scaler, se houver;
-    - classificador final.
-    """
+    """Carrega o pipeline final da V1."""
     return joblib.load("models/v1_pipeline.pkl")
 
 
 def load_whatsapp_with_optional_stats(content: str):
-    """
-    Carrega WhatsApp de forma compatível com duas versões do loader:
-
-    1. Versão nova:
-       load_whatsapp_txt_messages(content, return_stats=True)
-
-    2. Versão antiga:
-       load_whatsapp_txt_messages(content)
-
-    Assim o app não quebra se o loader ainda não tiver estatísticas.
-    """
+    """Carrega conversa do WhatsApp com fallback para loaders antigos."""
     try:
         df, stats = load_whatsapp_txt_messages(content, return_stats=True)
         return df, stats
@@ -349,10 +327,7 @@ def reset_v2_messages() -> None:
     st.session_state["v2_messages_df"] = None
 
 
-# ============================================================
-# Cabeçalho
-# ============================================================
-
+# Header
 st.markdown(
     """
     <div class="hero">
@@ -362,10 +337,7 @@ st.markdown(
 )
 
 
-# ============================================================
-# Estado da sessão
-# ============================================================
-
+# State
 if "v2_profile" not in st.session_state:
     st.session_state["v2_profile"] = None
 
@@ -376,17 +348,10 @@ if "v2_last_input_type" not in st.session_state:
     st.session_state["v2_last_input_type"] = None
 
 
-# ============================================================
-# Abas
-# ============================================================
-
 tab1, tab2 = st.tabs(["01 — Classificador", "02 — Perfilador"])
 
 
-# ============================================================
-# Aba V1
-# ============================================================
-
+# V1
 with tab1:
     st.markdown("## Classificador V1")
 
@@ -461,10 +426,7 @@ with tab1:
             st.dataframe(entrada, use_container_width=True)
 
 
-# ============================================================
-# Aba V2
-# ============================================================
-
+# V2
 with tab2:
     st.markdown("## Perfilador V2")
 
@@ -489,9 +451,7 @@ with tab2:
             st.session_state["v2_messages_df"] = None
             st.session_state["v2_last_input_type"] = input_type
 
-        # ----------------------------------------------------
-        # Entrada por texto simples
-        # ----------------------------------------------------
+        # Texto simples
         if input_type == "Texto simples":
             author_name = st.text_input(
                 "Nome do autor:",
@@ -513,9 +473,7 @@ with tab2:
                 )
                 st.session_state["v2_messages_df"] = df_text
 
-        # ----------------------------------------------------
-        # Entrada por CSV
-        # ----------------------------------------------------
+        # CSV
         elif input_type == "CSV":
             uploaded_csv = st.file_uploader(
                 "Envie um arquivo CSV com mensagens",
@@ -585,9 +543,7 @@ with tab2:
                             except Exception as exc:
                                 st.error(f"Erro ao carregar CSV: {exc}")
 
-        # ----------------------------------------------------
-        # Entrada por WhatsApp
-        # ----------------------------------------------------
+        # WhatsApp
         elif input_type == "WhatsApp (.txt)":
             uploaded_file = st.file_uploader(
                 "Envie o .txt exportado do WhatsApp",
@@ -627,9 +583,7 @@ with tab2:
                 except Exception as exc:
                     st.error(f"Erro ao carregar conversa do WhatsApp: {exc}")
 
-        # ----------------------------------------------------
-        # Área comum depois do carregamento
-        # ----------------------------------------------------
+        # Perfil
         df = st.session_state.get("v2_messages_df")
 
         if df is not None:

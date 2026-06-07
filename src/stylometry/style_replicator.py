@@ -5,19 +5,6 @@ from collections import Counter
 from typing import Any
 
 
-# ============================================================
-# style_replicator.py
-#
-# Recriador simples de estilo por regras.
-#
-# Objetivo acadêmico:
-# - não usar LLM;
-# - não inventar padrões;
-# - aplicar apenas sinais observados no perfil estilométrico;
-# - preservar o sentido da mensagem original.
-# ============================================================
-
-
 _ABBREVIATION_RULES: dict[str, list[tuple[str, str]]] = {
     "vc": [
         (r"\bvocê\b", "vc"),
@@ -96,11 +83,6 @@ _EMOJI_PATTERN = re.compile(
 )
 
 
-# ============================================================
-# Conversões seguras
-# ============================================================
-
-
 def _get_float(profile: dict, key: str, default: float = 0.0) -> float:
     try:
         return float(profile.get(key, default))
@@ -115,22 +97,8 @@ def _get_int(profile: dict, key: str, default: int = 0) -> int:
         return default
 
 
-# ============================================================
-# Leitura robusta do perfil
-# ============================================================
-
-
 def _extract_term(item: Any) -> str:
-    """
-    Extrai termos de estruturas diferentes.
-
-    Compatível com:
-    - {"term": "kkk", "count": 3}
-    - {"word": "kkk", "count": 3}
-    - {"bigram": "muito bom", "count": 2}
-    - ("kkk", 3)
-    - "kkk"
-    """
+    """Extrai o texto principal de um item do perfil."""
     if isinstance(item, dict):
         for key in ["term", "word", "bigram", "text", "value", "token"]:
             if key in item:
@@ -143,9 +111,6 @@ def _extract_term(item: Any) -> str:
 
 
 def _get_profile_terms(profile: dict) -> set[str]:
-    """
-    Junta palavras e bigramas frequentes em um conjunto simples.
-    """
     terms: set[str] = set()
 
     for key in ["top_words", "top_bigrams"]:
@@ -158,9 +123,6 @@ def _get_profile_terms(profile: dict) -> set[str]:
 
 
 def _get_sample_messages(profile: dict) -> list[str]:
-    """
-    Retorna exemplos reais do perfil, quando existirem.
-    """
     samples = profile.get("sample_messages", {}) or {}
 
     if isinstance(samples, dict):
@@ -173,33 +135,13 @@ def _get_sample_messages(profile: dict) -> list[str]:
 
 
 def _get_profile_text_blob(profile: dict) -> str:
-    """
-    Cria um texto auxiliar com termos e exemplos reais.
-
-    Isso permite detectar padrões mesmo quando o profile_builder ainda não
-    possui chaves explícitas como detected_abbreviations ou laughter_patterns.
-    """
     terms = sorted(_get_profile_terms(profile))
     samples = _get_sample_messages(profile)
     return " ".join(terms + samples).lower()
 
 
-# ============================================================
-# Detecção de padrões reais do autor
-# ============================================================
-
-
+# Padrões do autor
 def _author_uses(profile: dict, expression: str) -> bool:
-    """
-    Verifica se uma expressão aparece no perfil real.
-
-    Ordem:
-    1. detected_abbreviations, se existir;
-    2. top_words/top_bigrams;
-    3. sample_messages.
-
-    Isso evita inventar abreviações que não aparecem no autor.
-    """
     expression = expression.lower().strip()
 
     detected_abbreviations = profile.get("detected_abbreviations", {}) or {}
@@ -217,9 +159,6 @@ def _author_uses(profile: dict, expression: str) -> bool:
 
 
 def _detect_author_abbreviations(profile: dict) -> list[str]:
-    """
-    Lista abreviações realmente detectadas no perfil.
-    """
     detected: list[str] = []
 
     for abbreviation in _ABBREVIATION_PRIORITY:
@@ -230,12 +169,6 @@ def _detect_author_abbreviations(profile: dict) -> list[str]:
 
 
 def _detect_laughter_counter(profile: dict) -> Counter[str]:
-    """
-    Detecta risadas no perfil.
-
-    Usa laughter_patterns quando existe, mas também consegue funcionar
-    só com top_words e sample_messages.
-    """
     counter: Counter[str] = Counter()
 
     laughter_patterns = profile.get("laughter_patterns", {}) or {}
@@ -267,11 +200,6 @@ def _author_laughter(profile: dict) -> str:
 
 
 def _detect_common_emojis(profile: dict) -> list[str]:
-    """
-    Detecta emojis reais nos exemplos do perfil.
-
-    Se não houver emojis nos exemplos, não inventa emoji.
-    """
     blob = " ".join(_get_sample_messages(profile))
     emojis = _EMOJI_PATTERN.findall(blob)
 
@@ -287,11 +215,7 @@ def _detect_common_emojis(profile: dict) -> list[str]:
     return [emoji for emoji, _ in counter.most_common(3)]
 
 
-# ============================================================
 # Capitalização
-# ============================================================
-
-
 def _first_alpha_char(text: str) -> str:
     for char in str(text):
         if char.isalpha():
@@ -333,12 +257,6 @@ def _sample_initial_capital_ratio(profile: dict) -> float | None:
 
 
 def _should_lowercase(profile: dict) -> bool:
-    """
-    Decide se o autor tende a escrever tudo/minimamente em minúsculo.
-
-    Usa samples primeiro, porque avg_uppercase_ratio pode ser enganoso
-    quando há poucas mensagens ou nomes próprios.
-    """
     capital_ratio = _sample_initial_capital_ratio(profile)
     avg_uppercase_ratio = _get_float(profile, "avg_uppercase_ratio", 0.0)
 
@@ -359,13 +277,6 @@ def _should_capitalize_initial(profile: dict) -> bool:
 
 
 def _apply_capitalization_style(text: str, profile: dict) -> str:
-    """
-    Aplica capitalização sem exagerar.
-
-    - Se o autor escreve quase tudo minúsculo, deixa minúsculo.
-    - Se o autor começa frases com maiúscula, capitaliza a primeira letra.
-    - Nunca inventa CAIXA ALTA.
-    """
     if _should_lowercase(profile):
         return text.lower()
 
@@ -375,19 +286,8 @@ def _apply_capitalization_style(text: str, profile: dict) -> str:
     return text
 
 
-# ============================================================
-# Abreviações e substituições
-# ============================================================
-
-
+# Abreviações
 def _apply_only_author_abbreviations(text: str, profile: dict, intensity: int) -> str:
-    """
-    Aplica apenas abreviações encontradas no perfil real.
-
-    Intensidade:
-    - 1: não aplica abreviações, só estilo superficial;
-    - 2 e 3: aplica abreviações detectadas.
-    """
     if intensity <= 1:
         return text
 
@@ -403,23 +303,13 @@ def _apply_only_author_abbreviations(text: str, profile: dict, intensity: int) -
     return result
 
 
-# ============================================================
 # Pontuação
-# ============================================================
-
-
 def _author_uses_ellipsis(profile: dict) -> bool:
     samples = " ".join(_get_sample_messages(profile))
     return "..." in samples or "…" in samples
 
 
 def _choose_final_punctuation(original_message: str, profile: dict, intensity: int) -> str:
-    """
-    Escolhe pontuação final com base no perfil e na mensagem original.
-
-    Preserva pergunta quando a mensagem original é pergunta.
-    Só adiciona exclamação/reticências se houver sinal no perfil.
-    """
     original_message = str(original_message).strip()
     message_count = max(1, _get_int(profile, "message_count", 1))
 
@@ -454,11 +344,7 @@ def _strip_final_punctuation(text: str) -> str:
     return re.sub(r"[.!?…]+$", "", text).strip()
 
 
-# ============================================================
-# Adornos reais: risada e emoji
-# ============================================================
-
-
+# Risadas e emojis
 def _should_add_laughter(profile: dict, intensity: int) -> bool:
     if intensity < 3:
         return False
@@ -471,8 +357,6 @@ def _should_add_laughter(profile: dict, intensity: int) -> bool:
     message_count = max(1, _get_int(profile, "message_count", 1))
     laughter_rate = total_laughter / message_count
 
-    # Se o total_laughter não veio preenchido, mas a risada apareceu nos samples,
-    # ainda permitimos em intensidade 3.
     return laughter_rate >= 0.03 or bool(_detect_laughter_counter(profile))
 
 
@@ -492,9 +376,6 @@ def _add_laughter_if_allowed(text: str, profile: dict, intensity: int) -> str:
 
 
 def _add_emoji_if_allowed(text: str, profile: dict, intensity: int) -> str:
-    """
-    Adiciona emoji apenas quando ele aparece nos exemplos reais.
-    """
     if intensity < 3:
         return text
 
@@ -518,27 +399,12 @@ def _add_emoji_if_allowed(text: str, profile: dict, intensity: int) -> str:
     return f"{text} {emoji}"
 
 
-# ============================================================
-# Funções públicas usadas pelo app.py
-# ============================================================
-
-
 def rewrite_message_with_profile(
     message: str,
     profile: dict,
     intensity: int = 2,
 ) -> str:
-    """
-    Recria uma mensagem usando regras baseadas no perfil real.
-
-    O que esta função faz:
-    - preserva o sentido da mensagem;
-    - aplica capitalização/minúsculas conforme o perfil;
-    - aplica abreviações somente se aparecem no perfil;
-    - aplica pontuação, risadas e emojis somente se há evidência no perfil;
-    - não usa LLM;
-    - não inventa vocabulário novo.
-    """
+    """Adapta uma mensagem usando padrões detectados no perfil."""
     original = "" if message is None else str(message).strip()
 
     if not original:
@@ -548,36 +414,28 @@ def rewrite_message_with_profile(
 
     text = original
 
-    # Remove URLs para não estilizar lixo técnico.
     text = _URL_PATTERN.sub("", text).strip()
 
-    # Aplica abreviações reais do autor.
     text = _apply_only_author_abbreviations(text, profile, intensity)
 
-    # Reconstrói pontuação final de forma controlada.
     text = _strip_final_punctuation(text)
     punctuation = _choose_final_punctuation(original, profile, intensity)
 
     if punctuation:
         text = f"{text}{punctuation}"
 
-    # Aplica estilo de maiúscula/minúscula no final, para corrigir substituições.
     text = _apply_capitalization_style(text, profile)
 
-    # Adiciona risada e emoji só em intensidade alta e com evidência real.
     text = _add_laughter_if_allowed(text, profile, intensity)
     text = _add_emoji_if_allowed(text, profile, intensity)
 
-    # Limpeza final de espaços duplicados.
     text = re.sub(r"\s+", " ", text).strip()
 
     return text
 
 
 def explain_rewrite_rules(profile: dict) -> list[str]:
-    """
-    Explica as regras aplicadas/possíveis de forma apresentável no Streamlit.
-    """
+    """Retorna as regras exibidas no app."""
     message_count = _get_int(profile, "message_count", 0)
     avg_words = _get_float(profile, "avg_words_per_message", 0.0)
     avg_chars = _get_float(profile, "avg_chars_per_message", 0.0)
@@ -588,10 +446,10 @@ def explain_rewrite_rules(profile: dict) -> list[str]:
     emojis = _detect_common_emojis(profile)
 
     rules = [
-    f"Foram analisadas {message_count} mensagens do autor.",
-    f"O autor escreve em média {avg_words:.1f} palavras por mensagem.",
-    f"O tamanho médio das mensagens é de {avg_chars:.1f} caracteres.",
-]
+        f"Foram analisadas {message_count} mensagens do autor.",
+        f"O autor escreve em média {avg_words:.1f} palavras por mensagem.",
+        f"O tamanho médio das mensagens é de {avg_chars:.1f} caracteres.",
+    ]
 
     capital_ratio = _sample_initial_capital_ratio(profile)
 
