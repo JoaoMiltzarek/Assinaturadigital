@@ -1,5 +1,7 @@
 # AssinaturaDigital
 
+![Logo AssinaturaDigital](docs/logo.png)
+
 Projeto acadêmico de Machine Learning aplicado à **estilometria digital**.
 
 O objetivo é extrair atributos de escrita a partir de textos, treinar modelos de classificação de autoria e gerar perfis estilométricos de autores.
@@ -57,6 +59,14 @@ python -m streamlit run app.py
 ```
 
 A interface possui duas abas: **Classificador** (inferência de autoria) e **Perfilador** (análise estilométrica e recriação de estilo).
+
+### Classificador V1
+
+![Screenshot Classificador](docs/screenshot_classificador.png)
+
+### Perfilador V2
+
+![Screenshot Perfilador](docs/screenshot_perfilador.png)
 
 ---
 
